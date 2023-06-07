@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+    videoesrgan:
+      build: .
+      image: videoesrgan:latest
+      ports:
+        - "5015:5000"
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: 1
+                capabilities: [gpu]
