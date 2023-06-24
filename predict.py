@@ -25,6 +25,7 @@ class Predictor(BasePredictor):
 
     def predict(self, 
                 video: Path = Path(description="Video", default=None),
+                face_enhance: bool = Input(description="Face Enhance", default=True),
                 s3_bucket: str = Input(description="S3 Bucket", default=None),
                 s3_region: str = Input(description="S3 Region", default=None),
                 s3_access_key: str = Input(description="S3 Access Key", default=None),
@@ -37,6 +38,8 @@ class Predictor(BasePredictor):
         print("input_path: ", input_path)
         temp_folder = 'extracted_frames'
         enhanced_folder = 'enhanced_frames'
+
+    
 
         # get fps from video
         cmd = [
@@ -87,6 +90,37 @@ class Predictor(BasePredictor):
             frame_count = len(os.listdir(temp_folder))
             print(f"Done, Extracted {frame_count} Frames")
 
+
+        ####################################### Extract Audio #######################################
+
+        # get audio extension
+        cmd = [
+            'ffprobe',
+            '-v',
+            'error',
+            '-select_streams',
+            'a',
+            '-show_entries',
+            'stream=codec_name',
+            '-of',
+            'default=noprint_wrappers=1:nokey=1',
+            input_path
+        ]
+
+
+        audio_extension = subprocess.check_output(cmd).decode('utf-8').strip()
+        print(f"Audio Extension: {audio_extension}")
+
+        audio_path = 'audio.' + audio_extension
+
+        # try to remove audio_path if exists
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+            
+
+        cmd = "ffmpeg -i " + input_path + " -vn -acodec copy " + audio_path
+        os.system(cmd)
+
         ####################################### Process Frames #######################################
         print("Processing Frames...")
         frame_count = len(os.listdir(temp_folder))
@@ -99,19 +133,34 @@ class Predictor(BasePredictor):
 
         # for each frame in temp_folder, enhance it and save it in enhanced_folder
         currentFrame = 0    
-        cmd = [
-            'python',
-            'inference_realesrgan.py',
-            '-n',
-            'RealESRGAN_x4plus',
-            '-i',
-            f'{temp_folder}',
-            '--outscale',
-            '4',
-            '--face_enhance',
-            '-o',
-            f'{enhanced_folder}',
-        ]
+
+        if face_enhance:
+            cmd = [
+                'python',
+                'inference_realesrgan.py',
+                '-n',
+                'RealESRGAN_x4plus',
+                '-i',
+                f'{temp_folder}',
+                '--outscale',
+                '4',
+                '--face_enhance',
+                '-o',
+                f'{enhanced_folder}',
+            ]
+        else:
+            cmd = [
+                'python',
+                'inference_realesrgan.py',
+                '-n',
+                'RealESRGAN_x4plus',
+                '-i',
+                f'{temp_folder}',
+                '--outscale',
+                '4',
+                '-o',
+                f'{enhanced_folder}',
+            ]
 
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
@@ -121,36 +170,41 @@ class Predictor(BasePredictor):
         else:
             print(f"Done, Enhanced {frame_count} Frames")
 
-
-
-        
-
         ####################################### Create Video #######################################
         print("Creating Video...")
 
         result_folder = 'results'
 
+
         if os.path.isdir(result_folder):
             shutil.rmtree(result_folder)
         os.mkdir(result_folder)
 
-        print(f"Recompiling {frame_count} Frames into Video...")
-        # frame_00000240_out.png
+
+
+
         cmd = [
             'ffmpeg',
             '-r',
             str(fps),
             '-i',
             f'{enhanced_folder}/frame_%08d_out.png',
+            '-i',
+            '/Real-ESRGAN/' + audio_path,
             '-c:v',
             'libx264',
             '-pix_fmt',
             'yuv420p',
             '-crf',
             '10',
+            '-c:a',
+            'aac',
+            '-strict',
+            '-2',
             f'{result_folder}/enhanced_video.mp4'
-
         ]
+
+
 
         print('######################################### cmd : ', cmd)
 
